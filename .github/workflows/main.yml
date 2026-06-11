@@ -2,10 +2,12 @@ name: Deploy Templatized Data Environment
 
 on:
   pull_request:
-    types: [closed]
+    types:
+      - closed
     branches:
       - staging
       - main
+
   push:
     branches:
       - staging
@@ -13,12 +15,15 @@ on:
 
 jobs:
   deploy_data_environment:
-    # Only run when PR is merged or on direct push to environment branches
+    # Run only for direct pushes or merged PRs
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
     runs-on: ubuntu-latest
 
     env:
-      # Snowflake connection secrets
+      # Tell Snowflake CLI where config.toml exists
+      SNOWFLAKE_HOME: ${{ github.workspace }}
+
+      # Snowflake connection credentials from GitHub secrets
       SNOWFLAKE_CONNECTIONS_ADVANCED_DATA_ENGINEERING_SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
       SNOWFLAKE_CONNECTIONS_ADVANCED_DATA_ENGINEERING_SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
       SNOWFLAKE_CONNECTIONS_ADVANCED_DATA_ENGINEERING_SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
@@ -28,9 +33,21 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      # Determine deployment environment based on target branch
-      - name: Set environment
-        id: set_env
+      # Setup Python for Snowflake CLI installation
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Install Snowflake CLI
+      - name: Install Snowflake CLI
+        run: |
+          python -m pip install --upgrade pip
+          pip install snowflake-cli
+          snow --version
+
+      # Determine deployment environment
+      - name: Set deployment environment
         shell: bash
         run: |
           TARGET_BRANCH="${GITHUB_BASE_REF:-${GITHUB_REF#refs/heads/}}"
@@ -48,24 +65,24 @@ jobs:
             exit 1
           fi
 
-      # Install Snowflake CLI
-      - name: Install Snowflake CLI
-        uses: snowflakedb/snowflake-cli-action@v2
-        with:
-          cli-version: latest
-          default-config-file-path: config.toml
+      # Verify that Snowflake CLI can see the config file
+      - name: Verify Snowflake configuration
+        run: |
+          echo "SNOWFLAKE_HOME=${SNOWFLAKE_HOME}"
+          ls -la ${SNOWFLAKE_HOME}
+          cat ${SNOWFLAKE_HOME}/config.toml | head -20
 
-      # Fetch latest repository changes into Snowflake
+      # Fetch latest Git repository changes into Snowflake
       - name: Fetch latest changes to Snowflake
         run: |
           snow git fetch course_repo.public.advanced_data_engineering_snowflake
 
-      # Execute SQL templates in the target environment
+      # Execute the templated SQL files
       - name: Deploy templates to data environment
         shell: bash
         run: |
           echo "Using Git branch: ${GITHUB_REF_NAME}"
-          echo "Deploying to environment: ${DEPLOY_ENV}"
+          echo "Deploying environment: ${DEPLOY_ENV}"
 
           snow git execute \
             @advanced_data_engineering_snowflake/branches/${GITHUB_REF_NAME}/module-1/hamburg_weather/pipeline/data/ \
