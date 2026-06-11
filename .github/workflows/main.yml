@@ -72,6 +72,11 @@ jobs:
           ls -la ${SNOWFLAKE_HOME}
           cat ${SNOWFLAKE_HOME}/config.toml | head -20
 
+      # Fix config.toml permissions
+      - name: Fix Snowflake config permissions
+        run: |
+          chmod 0600 ${SNOWFLAKE_HOME}/config.toml
+
       # Fetch latest Git repository changes into Snowflake
       - name: Fetch latest changes to Snowflake
         run: |
