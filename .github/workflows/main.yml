@@ -18,50 +18,57 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      # Read connection secret
+      # Snowflake connection secrets
       SNOWFLAKE_CONNECTIONS_ADVANCED_DATA_ENGINEERING_SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
       SNOWFLAKE_CONNECTIONS_ADVANCED_DATA_ENGINEERING_SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
       SNOWFLAKE_CONNECTIONS_ADVANCED_DATA_ENGINEERING_SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
 
     steps:
-      # Checkout step is necessary to access repository files
+      # Checkout repository
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      # Determine environment based on target branch
+      # Determine deployment environment based on target branch
       - name: Set environment
         id: set_env
+        shell: bash
         run: |
           TARGET_BRANCH="${GITHUB_BASE_REF:-${GITHUB_REF#refs/heads/}}"
-          
-          if [[ $TARGET_BRANCH == "staging" ]]; then
+
+          if [[ "$TARGET_BRANCH" == "staging" ]]; then
             echo "DEPLOY_ENV=staging" >> $GITHUB_ENV
             echo "Environment set to staging"
-          elif [[ $TARGET_BRANCH == "main" ]]; then
+
+          elif [[ "$TARGET_BRANCH" == "main" ]]; then
             echo "DEPLOY_ENV=prod" >> $GITHUB_ENV
             echo "Environment set to production"
+
           else
             echo "Unexpected branch: $TARGET_BRANCH"
             exit 1
           fi
 
-      # Install Snowflake CLI GitHub Action and point to config file
-      - name: Install SnowflakeCLI
-        uses: snowflakedb/snowflake-cli-action@v1.5
+      # Install Snowflake CLI
+      - name: Install Snowflake CLI
+        uses: snowflakedb/snowflake-cli-action@v1
         with:
-          cli-version: "latest"
-          default-config-file-path: "config.toml"
+          cli-version: latest
+          default-config-file-path: config.toml
 
-      # Fetch latest changes from the repository to Snowflake
+      # Fetch latest repository changes into Snowflake
       - name: Fetch latest changes to Snowflake
-        run: snow git fetch course_repo.public.advanced_data_engineering_snowflake
-
-      # Deploy templates to the data environment -
-      - name: Deploy templates to data environment
         run: |
-          # Export TARGET_BRANCH for use in this step
-          echo "Using branch: ${GITHUB_REF_NAME}"
-          snow git execute @advanced_data_engineering_snowflake/branches/{GITHUB_REF_NAME}/module-1/hamburg_weather/pipeline/data/ \
-          -D "env='${{ ENV.DEPLOY_ENV }}'" \
-          --database=COURSE_REPO \
-          --schema=PUBLIC
+          snow git fetch course_repo.public.advanced_data_engineering_snowflake
+
+      # Execute SQL templates in the target environment
+      - name: Deploy templates to data environment
+        shell: bash
+        run: |
+          echo "Using Git branch: ${GITHUB_REF_NAME}"
+          echo "Deploying to environment: ${DEPLOY_ENV}"
+
+          snow git execute \
+            @advanced_data_engineering_snowflake/branches/${GITHUB_REF_NAME}/module-1/hamburg_weather/pipeline/data/ \
+            -D "env='${DEPLOY_ENV}'" \
+            --database COURSE_REPO \
+            --schema PUBLIC
